@@ -1,0 +1,50 @@
+# ============================================================================
+# Alertmanager configuration
+# Routes by severity: 'page' -> on-call (paging integration), 'ticket' ->
+# a lower-urgency channel. Deliberately separates the two so on-call only
+# gets woken for genuine error-budget-threatening events.
+#
+# Receivers below use webhook placeholders; swap for PagerDuty/Opsgenie/Slack
+# in a real deployment. No real secrets are committed.
+# ============================================================================
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ['alertname', 'slo']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="page"]
+      receiver: oncall-page
+      group_wait: 10s
+      repeat_interval: 1h
+    - matchers: [severity="ticket"]
+      receiver: ops-ticket
+
+receivers:
+  - name: default
+    webhook_configs:
+      - url: 'http://example.invalid/default'
+        send_resolved: true
+
+  - name: oncall-page
+    webhook_configs:
+      # Replace with PagerDuty/Opsgenie integration URL.
+      - url: 'http://example.invalid/page'
+        send_resolved: true
+
+  - name: ops-ticket
+    webhook_configs:
+      # Replace with Slack/Jira webhook.
+      - url: 'http://example.invalid/ticket'
+        send_resolved: true
+
+inhibit_rules:
+  # If the exporter is down we can't trust derived alerts; suppress the noise.
+  - source_matchers: [alertname="SQLExporterDown"]
+    target_matchers: [severity="page"]
+    equal: ['slo']

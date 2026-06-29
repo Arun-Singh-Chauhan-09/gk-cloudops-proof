@@ -1,0 +1,74 @@
+# ============================================================================
+# Full observability stack for the monitoring proof-of-work.
+#   postgres      -> mock POS/retail data
+#   sql_exporter  -> turns operational SQL queries into Prometheus metrics
+#   prometheus    -> scrapes + evaluates SLO burn-rate rules
+#   alertmanager  -> routes pages vs tickets
+#   grafana       -> auto-provisioned datasource + dashboard
+#
+# Run:   docker compose up -d
+# Then:  Grafana http://localhost:3000  (admin/admin)
+#        Prometheus http://localhost:9090  Alertmanager http://localhost:9093
+# ============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: retail
+      POSTGRES_USER: exporter
+      POSTGRES_PASSWORD: exporter_pw
+    volumes:
+      - ./sample-db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exporter -d retail"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  sql_exporter:
+    image: burningalchemist/sql_exporter:0.16.0
+    command:
+      - '-config.file=/etc/sql_exporter/sql_exporter.yml'
+    volumes:
+      - ./sql-exporter/sql_exporter.yml:/etc/sql_exporter/sql_exporter.yml:ro
+    ports:
+      - "9399:9399"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules.yml:/etc/prometheus/rules/rules.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - sql_exporter
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus

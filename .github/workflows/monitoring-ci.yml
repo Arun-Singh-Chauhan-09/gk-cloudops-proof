@@ -1,0 +1,84 @@
+# ============================================================================
+# CI: prove the monitoring stack actually boots and produces metrics.
+#
+# This workflow exists so the repo's claims are publicly verifiable — anyone
+# can open the Actions tab and see the stack come up, the SLO rules validate,
+# and real metrics flow end to end. It asserts only what it can genuinely
+# check; it does not claim to load-test alerts or judge dashboards.
+# ============================================================================
+
+name: monitoring-stack-ci
+
+on:
+  push:
+    paths: ['monitoring/**', '.github/workflows/monitoring-ci.yml']
+  pull_request:
+    paths: ['monitoring/**', '.github/workflows/monitoring-ci.yml']
+  workflow_dispatch:
+
+jobs:
+  validate-and-boot:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: monitoring
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- 1. Static validation of Prometheus rules + config ----------------
+      - name: Install promtool
+        run: |
+          PROM_VER=2.54.1
+          curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VER}/prometheus-${PROM_VER}.linux-amd64.tar.gz" \
+            | tar xz
+          sudo mv "prometheus-${PROM_VER}.linux-amd64/promtool" /usr/local/bin/
+
+      - name: Validate Prometheus config and rules
+        run: |
+          promtool check config prometheus/prometheus.yml
+          promtool check rules prometheus/rules.yml
+
+      # --- 2. Boot the full stack -------------------------------------------
+      - name: Start stack
+        run: docker compose up -d
+
+      - name: Wait for Prometheus to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9090/-/ready; then echo ready; break; fi
+            sleep 2
+          done
+
+      # --- 3. Assert the wiring actually works ------------------------------
+      - name: Assert sql_exporter target is UP in Prometheus
+        run: |
+          sleep 20  # allow a scrape cycle
+          UP=$(curl -sf 'http://localhost:9090/api/v1/query?query=up{job="sql_exporter"}' \
+               | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["data"]["result"][0]["value"][1] if d["data"]["result"] else "0")')
+          echo "sql_exporter up = $UP"
+          test "$UP" = "1"
+
+      - name: Assert operational metrics are flowing
+        run: |
+          for metric in pos_transactions_total store_sync_lag_seconds sync_queue_backlog; do
+            COUNT=$(curl -sf "http://localhost:9090/api/v1/query?query=$metric" \
+                    | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["data"]["result"]))')
+            echo "$metric series = $COUNT"
+            test "$COUNT" -gt 0
+          done
+
+      - name: Assert SLO recording rules evaluated
+        run: |
+          VAL=$(curl -sf 'http://localhost:9090/api/v1/query?query=pos:txn_total:rate5m' \
+                | python3 -c 'import sys,json; r=json.load(sys.stdin)["data"]["result"]; print("ok" if r else "none")')
+          echo "recording rule pos:txn_total:rate5m = $VAL"
+          test "$VAL" = "ok"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,42 @@
+[
+  {
+    "name": "pos-sync-worker",
+    "replicas": 6,
+    "cpu_request_cores": 1.0,
+    "mem_request_gb": 2.0,
+    "cpu_used_cores": 0.18,
+    "mem_used_gb": 0.55
+  },
+  {
+    "name": "promotion-engine",
+    "replicas": 4,
+    "cpu_request_cores": 2.0,
+    "mem_request_gb": 4.0,
+    "cpu_used_cores": 0.30,
+    "mem_used_gb": 0.9
+  },
+  {
+    "name": "checkout-api",
+    "replicas": 8,
+    "cpu_request_cores": 1.0,
+    "mem_request_gb": 1.5,
+    "cpu_used_cores": 0.72,
+    "mem_used_gb": 1.1
+  },
+  {
+    "name": "loyalty-service",
+    "replicas": 3,
+    "cpu_request_cores": 0.5,
+    "mem_request_gb": 1.0,
+    "cpu_used_cores": 0.08,
+    "mem_used_gb": 0.22
+  },
+  {
+    "name": "inventory-stream",
+    "replicas": 2,
+    "cpu_request_cores": 2.0,
+    "mem_request_gb": 8.0,
+    "cpu_used_cores": 1.6,
+    "mem_used_gb": 6.4
+  }
+]

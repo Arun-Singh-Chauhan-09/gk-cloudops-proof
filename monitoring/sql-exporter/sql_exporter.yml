@@ -1,0 +1,58 @@
+# ============================================================================
+# sql_exporter configuration
+# Bridges the job's "monitor using SQL queries" requirement to Prometheus.
+# Each collector below is an operational health question an on-call engineer
+# would otherwise run by hand; here it becomes a scraped, alertable metric.
+#
+# Exporter: github.com/burningalchemist/sql_exporter
+# ============================================================================
+
+global:
+  scrape_timeout_offset: 500ms
+  min_interval: 0s
+  max_connections: 3
+  max_idle_connections: 3
+
+target:
+  data_source_name: 'postgres://exporter:exporter_pw@postgres:5432/retail?sslmode=disable'
+  collectors: [retail_ops]
+
+collectors:
+  - collector_name: retail_ops
+
+    metrics:
+      # --- POS transaction outcomes (drives success-rate SLO) ----------------
+      - metric_name: pos_transactions_total
+        type: gauge
+        help: 'POS transactions in the last 5 minutes, by status.'
+        key_labels: [status]
+        values: [count]
+        query: |
+          SELECT status, COUNT(*) AS count
+          FROM pos_transactions
+          WHERE created_at > now() - interval '5 minutes'
+          GROUP BY status;
+
+      # --- Store sync staleness (drives freshness alert) ---------------------
+      - metric_name: store_sync_lag_seconds
+        type: gauge
+        help: 'Seconds since each store last synced.'
+        key_labels: [store_id, region]
+        values: [lag_seconds]
+        query: |
+          SELECT store_id::text AS store_id,
+                 region,
+                 EXTRACT(EPOCH FROM (now() - last_sync_at)) AS lag_seconds
+          FROM stores;
+
+      # --- Replication / sync backlog (drives queue-depth alert) -------------
+      - metric_name: sync_queue_backlog
+        type: gauge
+        help: 'Unprocessed items in the outbound sync queue, by store.'
+        key_labels: [store_id]
+        values: [backlog]
+        query: |
+          SELECT store_id::text AS store_id, COUNT(*) AS backlog
+          FROM sync_queue
+          WHERE processed = false
+          GROUP BY store_id;

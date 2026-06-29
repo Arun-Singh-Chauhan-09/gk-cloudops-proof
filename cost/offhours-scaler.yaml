@@ -1,0 +1,99 @@
+# ============================================================================
+# Off-hours scaling for non-production namespaces.
+#
+# Pattern proven in production: at Aavas Financiers I cut AWS spend ~35% by
+# shutting down non-essential capacity outside business hours and on weekends.
+# This is the Kubernetes-native version of that idea — scale non-prod
+# deployments to zero overnight and restore them in the morning, on a schedule,
+# with no human in the loop.
+#
+# Two CronJobs (down at 20:00, up at 07:00, Mon-Fri) act on every deployment
+# in the target namespace. RBAC is scoped to exactly that namespace.
+# ============================================================================
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: offhours-scaler
+  namespace: nonprod
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: offhours-scaler
+  namespace: nonprod
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: offhours-scaler
+  namespace: nonprod
+subjects:
+  - kind: ServiceAccount
+    name: offhours-scaler
+    namespace: nonprod
+roleRef:
+  kind: Role
+  name: offhours-scaler
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scale-down-nonprod
+  namespace: nonprod
+spec:
+  # 20:00 Mon-Fri, Europe/Berlin assumed via cluster tz config.
+  schedule: "0 20 * * 1-5"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: offhours-scaler
+          restartPolicy: OnFailure
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:1.30
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  # Record current replicas as an annotation, then scale to 0.
+                  for d in $(kubectl -n nonprod get deploy -o name); do
+                    cur=$(kubectl -n nonprod get "$d" -o jsonpath='{.spec.replicas}')
+                    kubectl -n nonprod annotate "$d" offhours/replicas="$cur" --overwrite
+                    kubectl -n nonprod scale "$d" --replicas=0
+                  done
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scale-up-nonprod
+  namespace: nonprod
+spec:
+  # 07:00 Mon-Fri.
+  schedule: "0 7 * * 1-5"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: offhours-scaler
+          restartPolicy: OnFailure
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:1.30
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  # Restore replicas from the annotation written at scale-down.
+                  for d in $(kubectl -n nonprod get deploy -o name); do
+                    want=$(kubectl -n nonprod get "$d" -o jsonpath='{.metadata.annotations.offhours/replicas}')
+                    [ -n "$want" ] && kubectl -n nonprod scale "$d" --replicas="$want"
+                  done

@@ -1,0 +1,104 @@
+# ============================================================================
+# Alert & recording rules for a CLOUD4RETAIL-style POS platform.
+#
+# Design choice: SLO-based, multi-window burn-rate alerting rather than naive
+# static thresholds. This is the difference between waking on-call for every
+# blip vs. only when the error budget is genuinely at risk. Burn-rate method
+# follows the Google SRE workbook (fast 1h window + slow 6h window must BOTH
+# fire), which suppresses transient noise — directly relevant to a rotating
+# on-call team.
+#
+# SLO target for POS transaction success: 99.9% (43m12s budget / 30 days).
+# ============================================================================
+
+groups:
+  # --------------------------------------------------------------------------
+  - name: pos_slo_recording
+    interval: 15s
+    rules:
+      # Total and good transaction rates over rolling windows.
+      - record: pos:txn_total:rate5m
+        expr: sum(rate(pos_transactions_total[5m]))
+
+      - record: pos:txn_failed:rate5m
+        expr: sum(rate(pos_transactions_total{status="failed"}[5m]))
+
+      # Error ratio over short and long burn-rate windows.
+      - record: pos:error_ratio:rate1h
+        expr: |
+          sum(rate(pos_transactions_total{status="failed"}[1h]))
+          /
+          clamp_min(sum(rate(pos_transactions_total[1h])), 1)
+
+      - record: pos:error_ratio:rate6h
+        expr: |
+          sum(rate(pos_transactions_total{status="failed"}[6h]))
+          /
+          clamp_min(sum(rate(pos_transactions_total[6h])), 1)
+
+  # --------------------------------------------------------------------------
+  - name: pos_slo_alerts
+    rules:
+      # Fast burn: error budget being consumed 14.4x faster than allowed.
+      # 0.001 (SLO error budget) * 14.4 = 0.0144 threshold.
+      - alert: POSErrorBudgetFastBurn
+        expr: |
+          pos:error_ratio:rate1h > (14.4 * 0.001)
+          and
+          pos:error_ratio:rate6h > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: page
+          slo: pos_transaction_success
+        annotations:
+          summary: "POS success SLO fast burn ({{ $value | humanizePercentage }} error rate)"
+          description: >
+            Transaction failures are consuming the 99.9% error budget
+            ~14x too fast over both 1h and 6h windows. Page on-call.
+
+      # Slow burn: 3x consumption — ticket, not a page.
+      - alert: POSErrorBudgetSlowBurn
+        expr: |
+          pos:error_ratio:rate6h > (3 * 0.001)
+        for: 15m
+        labels:
+          severity: ticket
+          slo: pos_transaction_success
+        annotations:
+          summary: "POS success SLO slow burn"
+          description: >
+            Sustained elevated failure rate over 6h. Error budget at risk
+            within days if uncorrected. Investigate during business hours.
+
+  # --------------------------------------------------------------------------
+  - name: pos_operational_alerts
+    rules:
+      # Store hasn't synced — POS data going stale in a region.
+      - alert: StoreSyncStale
+        expr: store_sync_lag_seconds > 300
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Store {{ $labels.store_id }} ({{ $labels.region }}) sync stale"
+          description: "No sync for {{ $value | humanizeDuration }}. Threshold 5m."
+
+      # Replication backlog building up for a store.
+      - alert: SyncQueueBacklogHigh
+        expr: sync_queue_backlog > 100
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Sync backlog high for store {{ $labels.store_id }}"
+          description: "{{ $value }} unprocessed items queued (threshold 100)."
+
+      # Exporter / DB connectivity lost — can't see, so treat as urgent.
+      - alert: SQLExporterDown
+        expr: up{job="sql_exporter"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "sql_exporter target down"
+          description: "Operational SQL metrics unavailable; flying blind."

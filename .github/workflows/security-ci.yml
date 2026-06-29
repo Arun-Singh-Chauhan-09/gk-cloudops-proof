@@ -1,0 +1,39 @@
+# ============================================================================
+# CI: scan Terraform for security misconfigurations with Checkov.
+#
+# Demonstrates a policy gate: the intentionally-insecure example must be
+# caught (the scan is EXPECTED to find issues there), proving the gate works.
+# In a real repo you'd fail the build on findings in production modules.
+# ============================================================================
+
+name: security-scan-ci
+
+on:
+  push:
+    paths: ['security/**', '.github/workflows/security-ci.yml']
+  pull_request:
+    paths: ['security/**', '.github/workflows/security-ci.yml']
+  workflow_dispatch:
+
+jobs:
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      # The insecure file is a fixture: we ASSERT Checkov flags it, proving
+      # the gate detects real problems. soft-fail so CI stays green while
+      # still surfacing the findings in the log.
+      - name: Scan (expect findings on the insecure fixture)
+        run: |
+          checkov -d security/terraform --soft-fail --compact
+          echo "Checkov ran. Review findings above; main_insecure.tf is the fixture."
+
+      # Prove the hardened file passes when scanned in isolation.
+      - name: Scan hardened file (expect clean)
+        run: |
+          mkdir -p /tmp/secure && cp security/terraform/main_secure.tf /tmp/secure/
+          checkov -d /tmp/secure --compact

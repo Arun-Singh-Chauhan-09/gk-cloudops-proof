@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 560" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <style>
+    .box { rx: 8; stroke-width: 2; }
+    .title { font-size: 15px; font-weight: 700; }
+    .sub { font-size: 11px; }
+    .lbl { font-size: 11px; fill: #444; }
+    .port { font-size: 10px; fill: #666; font-style: italic; }
+    .net { font-size: 12px; font-weight: 600; fill: #2563eb; }
+    .arrow { stroke: #555; stroke-width: 2; fill: none; marker-end: url(#ah); }
+    .alarm { stroke: #dc2626; }
+  </style>
+  <defs>
+    <marker id="ah" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="ahr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <text x="440" y="28" text-anchor="middle" font-size="18" font-weight="700">Monitoring stack — what `docker compose up` starts</text>
+  <text x="440" y="48" text-anchor="middle" class="lbl">5 containers on one private Docker network. Each box = one container. Arrows = data flow.</text>
+
+  <!-- network boundary -->
+  <rect x="20" y="64" width="840" height="430" rx="14" fill="#f0f6ff" stroke="#2563eb" stroke-dasharray="6 4"/>
+  <text x="36" y="86" class="net">Docker network: monitoring_default  (containers find each other by name)</text>
+
+  <!-- Postgres -->
+  <rect class="box" x="50" y="120" width="180" height="92" fill="#e0f2fe" stroke="#0284c7"/>
+  <text x="140" y="148" text-anchor="middle" class="title" fill="#075985">PostgreSQL</text>
+  <text x="140" y="168" text-anchor="middle" class="sub" fill="#075985">mock POS / retail data</text>
+  <text x="140" y="186" text-anchor="middle" class="sub" fill="#075985">runs init.sql on boot</text>
+  <text x="140" y="202" text-anchor="middle" class="port">:5432</text>
+
+  <!-- sql_exporter -->
+  <rect class="box" x="310" y="120" width="180" height="92" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="400" y="148" text-anchor="middle" class="title" fill="#166534">sql_exporter</text>
+  <text x="400" y="168" text-anchor="middle" class="sub" fill="#166534">runs your SQL every 15s</text>
+  <text x="400" y="186" text-anchor="middle" class="sub" fill="#166534">SQL -&gt; Prometheus metrics</text>
+  <text x="400" y="202" text-anchor="middle" class="port">:9399</text>
+
+  <!-- Prometheus -->
+  <rect class="box" x="570" y="120" width="180" height="92" fill="#ffedd5" stroke="#ea580c"/>
+  <text x="660" y="148" text-anchor="middle" class="title" fill="#9a3412">Prometheus</text>
+  <text x="660" y="168" text-anchor="middle" class="sub" fill="#9a3412">scrapes + stores metrics</text>
+  <text x="660" y="186" text-anchor="middle" class="sub" fill="#9a3412">evaluates SLO rules</text>
+  <text x="660" y="202" text-anchor="middle" class="port">:9090</text>
+
+  <!-- Grafana -->
+  <rect class="box" x="310" y="300" width="180" height="92" fill="#fef9c3" stroke="#ca8a04"/>
+  <text x="400" y="328" text-anchor="middle" class="title" fill="#854d0e">Grafana</text>
+  <text x="400" y="348" text-anchor="middle" class="sub" fill="#854d0e">auto-loads dashboard</text>
+  <text x="400" y="366" text-anchor="middle" class="sub" fill="#854d0e">queries Prometheus</text>
+  <text x="400" y="382" text-anchor="middle" class="port">:3000  (admin/admin)</text>
+
+  <!-- Alertmanager -->
+  <rect class="box" x="570" y="300" width="180" height="92" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="660" y="328" text-anchor="middle" class="title" fill="#991b1b">Alertmanager</text>
+  <text x="660" y="348" text-anchor="middle" class="sub" fill="#991b1b">routes firing alerts</text>
+  <text x="660" y="366" text-anchor="middle" class="sub" fill="#991b1b">page vs ticket</text>
+  <text x="660" y="382" text-anchor="middle" class="port">:9093</text>
+
+  <!-- arrows: postgres -> exporter -> prometheus -->
+  <path class="arrow" d="M230,166 L308,166"/>
+  <text x="269" y="158" text-anchor="middle" class="lbl">SQL</text>
+  <path class="arrow" d="M490,166 L568,166"/>
+  <text x="529" y="158" text-anchor="middle" class="lbl">scrape</text>
+
+  <!-- prometheus -> grafana (query) -->
+  <path class="arrow" d="M620,212 C600,260 520,300 492,332"/>
+  <text x="588" y="270" text-anchor="middle" class="lbl">query</text>
+
+  <!-- prometheus -> alertmanager (alerts) -->
+  <path class="arrow alarm" d="M660,212 L660,298" marker-end="url(#ahr)"/>
+  <text x="700" y="258" text-anchor="middle" class="lbl" fill="#dc2626">firing alerts</text>
+
+  <!-- you / browser -->
+  <rect x="50" y="300" width="180" height="92" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
+  <text x="140" y="330" text-anchor="middle" class="title" fill="#374151">You (browser)</text>
+  <text x="140" y="352" text-anchor="middle" class="sub" fill="#374151">open the dashboards</text>
+  <text x="140" y="372" text-anchor="middle" class="sub" fill="#374151">at localhost:PORT</text>
+
+  <path class="arrow" d="M308,346 L232,346"/>
+  <text x="270" y="338" text-anchor="middle" class="lbl">view</text>
+
+  <!-- legend / flow caption -->
+  <text x="36" y="468" class="lbl" font-weight="600">Flow:</text>
+  <text x="80" y="468" class="lbl">Postgres holds the data  →  sql_exporter turns SQL into metrics  →  Prometheus scrapes &amp; checks rules  →</text>
+  <text x="80" y="484" class="lbl">firing alerts go to Alertmanager (routed by severity)  •  Grafana draws it all for you to see.</text>
+
+  <text x="440" y="528" text-anchor="middle" class="lbl" font-style="italic">depends_on ordering: Postgres becomes healthy first, then sql_exporter, then Prometheus, Alertmanager &amp; Grafana.</text>
+</svg>

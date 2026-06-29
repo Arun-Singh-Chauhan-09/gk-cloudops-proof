@@ -1,0 +1,33 @@
+# ============================================================================
+# KEDA ScaledObject — scale the POS sync worker on real demand, not a fixed
+# replica count.
+#
+# Problem: POS load is spiky (store opening hours, promotions, weekends). A
+# fixed replica count either wastes money off-peak or falls behind at peak.
+# KEDA scales on an actual workload signal — here the Prometheus metric
+# `sync_queue_backlog` exported by our sql_exporter — so capacity tracks the
+# backlog instead of running hot 24/7.
+#
+# Scales to zero when idle; wakes on the first queued item.
+# ============================================================================
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: pos-sync-worker
+  namespace: prod
+spec:
+  scaleTargetRef:
+    name: pos-sync-worker
+  minReplicaCount: 0
+  maxReplicaCount: 20
+  cooldownPeriod: 300
+  pollingInterval: 15
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.monitoring.svc:9090
+        metricName: sync_queue_backlog
+        # Aim for ~50 queued items per replica; scale up past that.
+        threshold: "50"
+        query: sum(sync_queue_backlog)

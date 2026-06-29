@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'retail-ops'
+    orgId: 1
+    folder: 'Retail Ops'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/dashboards
